@@ -161,9 +161,6 @@ if st.button("Generate Audio", use_container_width=True):
                     
                     # Display the audio player for the current chunk
                     st.audio(audio_buffer.getvalue(), format="audio/wav")
-                    
-                    # Rerun the app to update the UI and display the new audio player
-                    st.rerun()
 
                 except Exception as e:
                     st.error(f"An error occurred during audio generation: {e}")
