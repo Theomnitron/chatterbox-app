@@ -12,4 +12,3 @@ resemble-perth==1.0.1
 conformer==0.3.2
 safetensors==0.5.3
 nltk
-pykakasi==2.3.0
