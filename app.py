@@ -186,3 +186,4 @@ with gr.Blocks() as demo:
     )
 
 demo.launch(mcp_server=True, share=True)
+
