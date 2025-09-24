@@ -1,5 +1,4 @@
 streamlit
-streamlit-custom-components
 soundfile
 einops
 s3tokenizer
