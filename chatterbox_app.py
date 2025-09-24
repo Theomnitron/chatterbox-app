@@ -4,17 +4,10 @@ import torch
 import streamlit as st
 import io
 import torchaudio
-from pathlib import Path
-import tempfile
+from src.chatterbox.mtl_tts import ChatterboxMultilingualTTS, SUPPORTED_LANGUAGES
+from nltk.tokenize import sent_tokenize
 import soundfile as sf
-
-# The custom audio player component
-from st_audio_player import st_audio_player
-
-# Assuming src.chatterbox is in the Python path or a local package.
-# It's important that `pip install -e src/` worked or that the chatterbox
-# library is installed correctly for this to run.
-# from src.chatterbox.mtl_tts import ChatterboxMultilingualTTS, SUPPORTED_LANGUAGES
+import re
 
 # --- Streamlit Page Configuration ---
 st.set_page_config(
@@ -41,133 +34,137 @@ def load_model():
     with st.spinner("Loading model... This may take a moment."):
         DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"🚀 Running on device: {DEVICE}")
-        # Placeholder for your actual model loading code
-        # model = ChatterboxMultilingualTTS(device=DEVICE)
-        # model.load_model()
-        return "Dummy Model"
+        model = ChatterboxMultilingualTTS(device=DEVICE)
+    return model
 
 MODEL = load_model()
 
-# --- Placeholder for streaming generation ---
-def get_audio_stream(model, text: str, lang_id: str, ref_wav_path=None, exaggeration=0.5, cfg_weight=0.5, seed=0, temp=0.8):
-    """
-    Generates audio in a streaming fashion.
-    This function simulates the streaming process. You need to replace the
-    logic with your model's streaming capabilities.
-    """
-    # Placeholder for a sentence splitter. Use a more robust library like NLTK
-    sentences = text.replace('.', '.<SENTENCE_BREAK>').replace('?', '?<SENTENCE_BREAK>').replace('!', '!<SENTENCE_BREAK>').split('<SENTENCE_BREAK>')
+# --- UI Helpers ---
+LANGUAGE_CONFIG = {
+    "en": {
+        "audio": "https://storage.googleapis.com/chatterbox-demo-samples/mtl_prompts/en_f1.flac",
+        "text": "Last month, we reached a new milestone with two billion views on our YouTube channel."
+    },
+    "fr": {
+        "audio": "https://storage.googleapis.com/chatterbox-demo-samples/mtl_prompts/fr_f1.flac",
+        "text": "Le mois dernier, nous avons atteint un nouveau jalon avec deux milliards de vues sur notre chaîne YouTube."
+    },
+    # Add other languages as needed...
+}
 
-    # Convert the uploaded file to a temporary WAV file for the model
-    temp_ref_wav = None
-    if ref_wav_path:
-        temp_ref_wav_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-        sf.write(temp_ref_wav_file.name, ref_wav_path, 44100, format='WAV') # Assuming a default sample rate
-        temp_ref_wav = temp_ref_wav_file.name
+def default_audio_for_ui(lang: str) -> str | None:
+    return LANGUAGE_CONFIG.get(lang, {}).get("audio")
 
-    try:
-        # Loop through each sentence and yield the audio chunk
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if not sentence:
-                continue
+def default_text_for_ui(lang: str) -> str:
+    return LANGUAGE_CONFIG.get(lang, {}).get("text", "")
 
-            # This is where your actual streaming model call would go.
-            # You would call a function like `model.stream_audio(sentence, ...)`
-            # and it would return a generator or stream.
-            
-            # --- Placeholder for the model's streaming logic ---
-            # simulated_audio_chunk = model.generate_streaming_chunk(
-            #     text=sentence,
-            #     lang_id=lang_id,
-            #     ref_wav=temp_ref_wav,
-            #     exaggeration=exaggeration,
-            #     cfg_weight=cfg_weight,
-            #     seed=seed,
-            #     temp=temp
-            # )
-            
-            # For demonstration, we'll generate a random chunk
-            sample_rate = 22050
-            duration = len(sentence) / 10.0
-            audio_data = np.random.randn(int(sample_rate * duration)).astype(np.float32)
+def get_supported_languages_display() -> str:
+    language_items = []
+    for lang_code, lang_name in sorted(list(SUPPORTED_LANGUAGES.items())):
+        language_items.append(f"<li><b>{lang_name}</b> ({lang_code})</li>")
+    return f"<ul>{''.join(language_items)}</ul>"
 
-            # Convert numpy array to BytesIO for streaming
-            audio_io = io.BytesIO()
-            torchaudio.save(audio_io, torch.tensor(audio_data).unsqueeze(0), sample_rate, format="wav")
-            audio_io.seek(0)
-            yield audio_io
-    finally:
-        # Clean up the temporary file
-        if temp_ref_wav:
-            Path(temp_ref_wav).unlink()
-
-# --- UI Components ---
-with st.container():
-    col1, col2 = st.columns([1, 1])
-
-    with col1:
-        text = st.text_area(
-            "Enter your text:",
-            "Welcome to the new era of real-time audio generation. This application streams the voice to you as it's being generated. No more waiting for the full file to be ready.",
-            height=300,
-            key="text_input"
-        )
-        
-        language_id = st.selectbox(
-            "Language",
-            ["en", "fr"], # Replace with SUPPORTED_LANGUAGES.keys()
-            key="language_id"
-        )
-
-        uploaded_audio = st.file_uploader(
-            "Upload reference audio for voice cloning (optional):",
-            type=["wav", "mp3", "flac"],
-            key="uploaded_audio"
-        )
+# --- Main App Logic ---
+with st.sidebar:
+    st.subheader("Model Parameters")
     
-    with col2:
-        exaggeration = st.slider("Exaggeration", 0.25, 2.0, step=0.05, value=0.5, key="exaggeration")
-        cfg_weight = st.slider("CFG/Pace", 0.2, 1.0, step=0.05, value=0.5, key="cfg_weight")
-        seed_num = st.number_input("Random seed (0 for random)", value=0, key="seed_num")
-        temp = st.slider("Temperature", 0.05, 5.0, step=0.05, value=0.8, key="temp")
+    # State management for default text and audio based on language
+    if 'default_text' not in st.session_state:
+        st.session_state.default_text = default_text_for_ui('en')
+    if 'ref_audio_url' not in st.session_state:
+        st.session_state.ref_audio_url = default_audio_for_ui('en')
 
-# The generate button
-if st.button("Generate Audio", use_container_width=True, type="primary"):
-    if not text:
-        st.error("Please enter some text to generate audio.")
+    # Language selection
+    language_id = st.selectbox(
+        "Language",
+        options=list(SUPPORTED_LANGUAGES.keys()),
+        format_func=lambda lang: SUPPORTED_LANGUAGES[lang],
+        index=list(SUPPORTED_LANGUAGES.keys()).index('en'),
+        on_change=lambda: st.session_state.update(
+            default_text=default_text_for_ui(st.session_state.language_id),
+            ref_audio_url=default_audio_for_ui(st.session_state.language_id)
+        ),
+        key='language_id'
+    )
+
+    # Reference Audio Upload
+    uploaded_audio = st.file_uploader(
+        "Upload Reference Audio File",
+        type=['mp3', 'flac', 'wav'],
+        help="Use a speaker's voice from this file for voice cloning.",
+        label_visibility="visible"
+    )
+
+    # If an audio file is uploaded, use it. Otherwise, use the default URL.
+    ref_wav_path = None
+    if uploaded_audio:
+        ref_wav_path = uploaded_audio
+    elif st.session_state.ref_audio_url:
+        ref_wav_path = st.session_state.ref_audio_url
+
+    # Model generation parameters
+    st.subheader("Generation Options")
+    exaggeration = st.slider("Exaggeration", min_value=0.25, max_value=2.0, value=0.5, step=0.05)
+    cfg_weight = st.slider("CFG/Pace", min_value=0.2, max_value=1.0, value=0.5, step=0.05)
+    seed_num = st.number_input("Random Seed (0 for random)", min_value=0, value=0)
+    temp = st.slider("Temperature", min_value=0.05, max_value=5.0, value=0.8, step=0.05)
+
+# Text Input
+text_area = st.text_area(
+    "Enter the text to be converted to speech:",
+    value=st.session_state.default_text,
+    height=200
+)
+
+# Generate Button
+if st.button("Generate Audio", use_container_width=True):
+    if not text_area:
+        st.warning("Please enter some text to convert.")
     else:
-        # Use st.status to provide feedback to the user
-        with st.status("Generating audio...", expanded=True) as status:
-            try:
-                # Prepare the reference audio if uploaded
-                ref_wav_path = None
-                if uploaded_audio:
-                    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
-                        temp_file.write(uploaded_audio.getvalue())
-                        ref_wav_path = temp_file.name
+        # A simple generator to split text by sentences
+        def text_chunk_generator(text):
+            # Split text by sentences, keeping punctuation
+            sentences = re.split(r'([.?!])', text)
+            chunks = []
+            current_chunk = ""
+            for i, sentence in enumerate(sentences):
+                current_chunk += sentence
+                if sentence in ['.', '?', '!', '\n'] or i == len(sentences) - 1:
+                    if current_chunk.strip():
+                        chunks.append(current_chunk.strip())
+                    current_chunk = ""
+            return chunks
 
-                status.update(label="Streaming audio to player...", state="running", expanded=True)
+        text_chunks = text_chunk_generator(text_area)
 
-                # Get the audio stream from the generator
-                audio_stream = get_audio_stream(
-                    MODEL,
-                    text,
-                    language_id,
-                    ref_wav_path,
-                    exaggeration,
-                    cfg_weight,
-                    seed_num if seed_num != 0 else random.randint(1, 10000),
-                    temp
-                )
-                
-                # Pass the stream to the custom component in the sidebar
-                with st.sidebar:
-                    st.header("Audio Player")
-                    st_audio_player(audio_stream)
+        # Placeholder to display audio players dynamically
+        audio_placeholder = st.empty()
+        
+        with st.spinner("Generating audio..."):
+            for chunk in text_chunks:
+                try:
+                    # Generate the audio for the current chunk
+                    generated_audio = MODEL.generate_audio(
+                        text=chunk,
+                        lang_id=language_id,
+                        ref_wav=ref_wav_path,
+                        exaggeration=exaggeration,
+                        cfg_weight=cfg_weight,
+                        seed=seed_num if seed_num != 0 else random.randint(1, 10000),
+                        temp=temp,
+                    )
 
-                status.update(label="Audio stream complete!", state="complete", expanded=False)
+                    # Write the generated audio to an in-memory buffer
+                    audio_buffer = io.BytesIO()
+                    torchaudio.save(audio_buffer, generated_audio, MODEL.sampling_rate, format="wav")
+                    audio_buffer.seek(0)
+                    
+                    # Display the audio player for the current chunk
+                    st.audio(audio_buffer.getvalue(), format="audio/wav")
+                    
+                    # Rerun the app to update the UI and display the new audio player
+                    st.rerun()
 
-            except Exception as e:
-                st.error(f"An error occurred during audio generation: {e}")
-                status.update(label="Audio generation failed!", state="error", expanded=True)
+                except Exception as e:
+                    st.error(f"An error occurred during audio generation: {e}")
+                    st.stop()
