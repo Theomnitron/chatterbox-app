@@ -32,15 +32,9 @@ def load_model():
     with st.spinner("Loading model... This may take a moment."):
         DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"🚀 Running on device: {DEVICE}")
-        # The constructor needs these positional arguments.
-        # Passing them as None is the most straightforward solution.
-        model = ChatterboxMultilingualTTS(
-            is_s3gen=False,
-            vc=None,
-            tokenizer=None,
-            lang_name=None,
-            device=DEVICE
-        )
+        # This is the correct way to load the model.
+        # It handles all internal dependencies and components.
+        model = ChatterboxMultilingualTTS.from_pretrained(DEVICE)
     return model
 
 MODEL = load_model()
