@@ -5,8 +5,6 @@ import streamlit as st
 import io
 import torchaudio
 from src.chatterbox.mtl_tts import ChatterboxMultilingualTTS, SUPPORTED_LANGUAGES
-from nltk.tokenize import sent_tokenize
-import soundfile as sf
 import re
 
 # --- Streamlit Page Configuration ---
@@ -34,7 +32,15 @@ def load_model():
     with st.spinner("Loading model... This may take a moment."):
         DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"🚀 Running on device: {DEVICE}")
-        model = ChatterboxMultilingualTTS(device=DEVICE)
+        # The constructor needs these positional arguments.
+        # Passing them as None is the most straightforward solution.
+        model = ChatterboxMultilingualTTS(
+            is_s3gen=False,
+            vc=None,
+            tokenizer=None,
+            lang_name=None,
+            device=DEVICE
+        )
     return model
 
 MODEL = load_model()
@@ -161,7 +167,7 @@ if st.button("Generate Audio", use_container_width=True):
                     
                     # Display the audio player for the current chunk
                     st.audio(audio_buffer.getvalue(), format="audio/wav")
-
+                    
                 except Exception as e:
                     st.error(f"An error occurred during audio generation: {e}")
                     st.stop()
